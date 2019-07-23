@@ -208,7 +208,7 @@ async function evaluateOrder(web3, trace, order) {
             takerAssetAmount: order.takerAssetAmount.toString(10),
             makerFee: order.makerFee.toString(10),
             takerFee: order.takerFee.toString(10),
-            expirationTimeSeconds: order.expirationTimeSeconds.toString(10),
+            expirationTimeSeconds: order.expirationTimeSeconds,
             salt: order.salt.toString(10),
             makerAsetData: order.makerAssetData,
             takerAsetData: order.takerAssetData,
