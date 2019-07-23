@@ -194,8 +194,9 @@ async function evaluateOrder(web3, trace, order) {
         trace.blockNumber,
     );
     const block = BLOCK_CACHE[trace.blockNumber];
+    const expiry = parseInt(order.expirationTimeSeconds.toString(10));
     return {
-        timeToLive: order.expirationTimeSeconds - block.timestamp,
+        timeToLive: expiry - block.timestamp,
         hash: orderInfo.orderHash,
         status: CODE_TO_ORDER_STATUS[orderInfo.orderStatus],
         takerAssetFilledAmount: orderInfo.orderTakerAssetFilledAmount.toString(10),
@@ -208,7 +209,7 @@ async function evaluateOrder(web3, trace, order) {
             takerAssetAmount: order.takerAssetAmount.toString(10),
             makerFee: order.makerFee.toString(10),
             takerFee: order.takerFee.toString(10),
-            expirationTimeSeconds: order.expirationTimeSeconds,
+            expirationTimeSeconds: expiry,
             salt: order.salt.toString(10),
             makerAsetData: order.makerAssetData,
             takerAsetData: order.takerAssetData,
