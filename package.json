@@ -1,15 +1,18 @@
 {
-  "name": "dydx-analysis",
-  "version": "0.1.0",
-  "main": "index.js",
-  "license": "MIT",
-  "dependencies": {
-    "@0x/contract-artifacts": "^2.0.1",
-    "create-web3-provider": "^1.5.3",
-    "ethereumjs-util": "^6.1.0",
-    "lodash": "^4.17.15",
-    "web3": "^1.0.0-beta.55",
-    "web3-eth-abi": "^1.0.0",
-    "yargs": "^13.3.0"
-  }
+    "name": "dydx-analysis",
+    "version": "0.1.1",
+    "main": "index.js",
+    "license": "MIT",
+    "scripts": {
+        "start": "node src/index.js"
+    },
+    "dependencies": {
+        "@0x/contract-artifacts": "^2.0.1",
+        "create-web3-provider": "^1.5.3",
+        "ethereumjs-util": "^6.1.0",
+        "lodash": "^4.17.15",
+        "web3": "^1.0.0-beta.55",
+        "web3-eth-abi": "^1.0.0",
+        "yargs": "^13.3.0"
+    }
 }

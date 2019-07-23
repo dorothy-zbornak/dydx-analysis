@@ -5,13 +5,18 @@ const cw3p = require('create-web3-provider');
 const ethjs = require('ethereumjs-util');
 const fs = require('mz/fs');
 const readline = require('readline');
+const process = require('process');
 const Web3 = require('web3');
 const abiCoder = require('web3-eth-abi');
 const yargs = require('yargs');
 
-const ARGV = yargs.string('output').boolean('pretty').argv;
+const ARGV = yargs
+    .string('output')
+    .boolean('pretty')
+    .argv;
 const INPUT_FILE = ARGV._[0];
 const OUTPUT_FILE = ARGV.output;
+const RETRY_DELAY = 100;
 const EXCHANGE_ABI = ARTIFACTS.Exchange.compilerOutput.abi;
 const BLOCK_CACHE = {};
 const SELECTOR_TO_ABI = extractMethodAbis();
@@ -28,33 +33,67 @@ const CODE_TO_ORDER_STATUS = [
 (async function() {
     const web3 = new Web3(cw3p({infuraKey: '05aa59b27d614baa90c6d86d9b0c6ab5'}));
     const transactions = {};
-    let counter = 0;
+    let totalTraces = 0;
+    let tracesProcessed = 0;
+    let streamClosed = false;
     const lines = readline.createInterface({
         input: fs.createReadStream(INPUT_FILE),
     });
-    lines.on('line', async (line) => {
-        const trace = JSON.parse(line);
-        const orders = await evaluateCallOrders(web3, trace);
-        if (orders.length > 0) {
-            transactions[trace.transactionHash] = mergeTransactionResults(
-                transactions[trace.transactionHash],
-                {
-                    transactionHash: trace.transactionHash,
-                    blockNumber: trace.blockNumber,
-                    orders: orders,
-                    success: trace.status === 1,
-                },
-            );
-        }
-        counter++;
-    });
-    lines.on('close', async () => {
-        await writeResults(transactions);
-        summarizeResults(transactions);
-        console.log(`processed ${counter} traces, ${_.keys(transactions).length} transactions`);
-    });
+    lines.on('close', () => streamClosed = true);
+    lines.on('line', () => ++totalTraces);
+    lines.on('line',
+        async (line) => {
+            const trace = JSON.parse(line);
+            let block, orders;
+            const fetcher = async () => {
+                block = trace.blockNumber in BLOCK_CACHE ?
+                    BLOCK_CACHE[trace.blockNumber] :
+                    await web3.eth.getBlock(trace.blockNumber);
+                BLOCK_CACHE[trace.blockNumber] = block;
+                orders = await evaluateCallOrders(web3, trace);
+            };
+            while (true) {
+                try {
+                    await fetcher();
+                    break;
+                } catch (err) {
+                    if (!(/Connection refused/.test(err.message))) {
+                        throw err;
+                    }
+                }
+                console.warn('\nRetrying...\n')
+                await wait(RETRY_DELAY);
+            }
+            if (orders.length > 0) {
+                transactions[trace.transactionHash] = mergeTransactionResults(
+                    transactions[trace.transactionHash],
+                    {
+                        transactionHash: trace.transactionHash,
+                        blockNumber: trace.blockNumber,
+                        timestamp: block.timestamp,
+                        orders: orders,
+                        success: trace.status === 1,
+                    },
+                );
+            }
+            tracesProcessed++;
+            const numTransactions = _.keys(transactions).length;
+            process.stdout.write(`processed ${numTransactions} transactions...\r`);
+
+            if (streamClosed && tracesProcessed === totalTraces) {
+                console.log('');
+                await writeResults(transactions);
+                summarizeResults(transactions);
+            }
+        },
+    );
 })();
 
+function wait(ms) {
+    return new Promise((accept, reject) => {
+        setTimeout(accept);
+    });
+}
 
 async function writeResults(transactions) {
     const txs = _.sortBy(
@@ -124,7 +163,6 @@ function extractMethodAbis() {
 }
 
 async function evaluateCallOrders(web3, trace) {
-    const _evaluateOrder = async (order) => evaluateOrder(web3, trace, order);
     const selector = sliceBytes(trace.callData, 0, 4);
     const abi = SELECTOR_TO_ABI[selector];
     if (abi === undefined) {
@@ -132,10 +170,18 @@ async function evaluateCallOrders(web3, trace) {
     }
     const encodedParameters = sliceBytes(trace.callData, 4);
     const args = abiCoder.decodeParameters(abi.inputs, encodedParameters);
+    const _evaluateOrder = async (order) => {
+        return _.assign(
+            await evaluateOrder(web3, trace, order),
+            { function: abi.name },
+        );
+    };
     if (args.order) {
         return [ await _evaluateOrder(args.order) ];
     } else if (args.orders) {
         return await Promise.all(args.orders.map(_evaluateOrder));
+    } else if (args.leftOrder) {
+        return await Promise.all([args.leftOrder, args.rightOrder].map(_evaluateOrder));
     } else {
         console.info(`Not processing call to ${abi.name}.`);
     }
@@ -147,8 +193,7 @@ async function evaluateOrder(web3, trace, order) {
         {from: trace.calleeAddress},
         trace.blockNumber,
     );
-    const block = trace.blockNumber in BLOCK_CACHE ?
-        BLOCK_CACHE[trace.blockNumber] : await web3.eth.getBlock(trace.blockNumber);
+    const block = BLOCK_CACHE[trace.blockNumber];
     return {
         timeToLive: order.expirationTimeSeconds - block.timestamp,
         hash: orderInfo.orderHash,
@@ -165,8 +210,8 @@ async function evaluateOrder(web3, trace, order) {
             takerFee: order.takerFee.toString(10),
             expirationTimeSeconds: order.expirationTimeSeconds.toString(10),
             salt: order.salt.toString(10),
-            makerAsetData: order.makerAsetData,
-            takerAsetData: order.takerAsetData,
+            makerAsetData: order.makerAssetData,
+            takerAsetData: order.takerAssetData,
         },
     };
 }
@@ -179,6 +224,7 @@ function mergeTransactionResults(current, result) {
     const merged = current || {};
     merged.transactionHash = result.transactionHash;
     merged.blockNumber = result.blockNumber;
+    merged.timestamp = result.timestamp;
     merged.success = result.success;
     merged.orders = merged.orders || [];
     merged.orders = [...merged.orders, ...result.orders];
