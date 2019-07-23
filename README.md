@@ -5,12 +5,12 @@
 git clone git@github.com:dorothy-zbornak/dydx-analysis.git
 cd dydx-analysis
 # Install
+yarn
 ```
 
 ## Running
 
 ```bash
-yarn
 yarn start [--ouput OUTPUT_FILE] DYDX_TRACES_FILE
 ```
 
