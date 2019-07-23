@@ -71,8 +71,8 @@ const CODE_TO_ORDER_STATUS = [
                         transactionHash: trace.transactionHash,
                         blockNumber: trace.blockNumber,
                         timestamp: block.timestamp,
-                        orders: orders,
                         success: trace.status === 1,
+                        orders: orders,
                     },
                 );
             }
@@ -196,13 +196,13 @@ async function evaluateOrder(web3, trace, order) {
     const block = BLOCK_CACHE[trace.blockNumber];
     const expiry = parseInt(order.expirationTimeSeconds.toString(10));
     return {
-        timeToLive: expiry - block.timestamp,
         hash: orderInfo.orderHash,
         status: CODE_TO_ORDER_STATUS[orderInfo.orderStatus],
         takerAssetFilledAmount: orderInfo.orderTakerAssetFilledAmount.toString(10),
+        timeToLive: expiry - block.timestamp,
         order: {
             makerAddress: order.makerAddress,
-            takerAddress: order.makerAddress,
+            takerAddress: order.takerAddress,
             feeRecipientAddress: order.feeRecipientAddress,
             senderAddress: order.senderAddress,
             makerAssetAmount: order.makerAssetAmount.toString(10),
