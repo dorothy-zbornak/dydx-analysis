@@ -182,8 +182,11 @@ async function evaluateCallOrders(web3, trace) {
         return await Promise.all(args.orders.map(_evaluateOrder));
     } else if (args.leftOrder) {
         return await Promise.all([args.leftOrder, args.rightOrder].map(_evaluateOrder));
+    } else if (args.data) {
+        return evaluateCallOrders(web3, _.assign({}, trace, { callData: args.data }));
     } else {
         console.info(`Not processing call to ${abi.name}.`);
+        return [];
     }
 }
 
@@ -191,15 +194,23 @@ async function evaluateOrder(web3, trace, order) {
     const contract = new web3.eth.Contract(EXCHANGE_ABI, trace.calleeAddress);
     const orderInfo = await contract.methods.getOrderInfo(order).call(
         {from: trace.calleeAddress},
-        trace.blockNumber,
+        // Evaluate one block before, otherwise complete fills in this block
+        // will incorrectly report the order as FULLY_FILLED.
+        trace.blockNumber - 1,
     );
     const block = BLOCK_CACHE[trace.blockNumber];
     const expiry = parseInt(order.expirationTimeSeconds.toString(10));
+    // Since we evaluate the order one block, we manually check if it
+    // expired when the block was mined.
+    const timeToLive = expiry - block.timestamp;
+    if (timeToLive <= 0) {
+        orderInfo.orderStatus = 4; // EXPIRED
+    }
     return {
         hash: orderInfo.orderHash,
         status: CODE_TO_ORDER_STATUS[orderInfo.orderStatus],
         takerAssetFilledAmount: orderInfo.orderTakerAssetFilledAmount.toString(10),
-        timeToLive: expiry - block.timestamp,
+        timeToLive: timeToLive,
         order: {
             makerAddress: order.makerAddress,
             takerAddress: order.takerAddress,
