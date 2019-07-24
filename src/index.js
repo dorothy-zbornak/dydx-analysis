@@ -19,6 +19,7 @@ const OUTPUT_FILE = ARGV.output;
 const RETRY_DELAY = 100;
 const EXCHANGE_ABI = ARTIFACTS.Exchange.compilerOutput.abi;
 const BLOCK_CACHE = {};
+const TX_CACHE = {};
 const SELECTOR_TO_ABI = extractMethodAbis();
 const CODE_TO_ORDER_STATUS = [
     'INVALID',
@@ -44,12 +45,16 @@ const CODE_TO_ORDER_STATUS = [
     lines.on('line',
         async (line) => {
             const trace = JSON.parse(line);
-            let block, orders;
+            let block, tx, orders;
             const fetcher = async () => {
                 block = trace.blockNumber in BLOCK_CACHE ?
                     BLOCK_CACHE[trace.blockNumber] :
                     await web3.eth.getBlock(trace.blockNumber);
                 BLOCK_CACHE[trace.blockNumber] = block;
+                tx = trace.transactionHash in TX_CACHE ?
+                    TX_CACHE[tx.transactionHash] :
+                    await web3.eth.getTransaction(trace.transactionHash);
+                TX_CACHE[tx.transactionHash] = tx;
                 orders = await evaluateCallOrders(web3, trace);
             };
             while (true) {
@@ -71,6 +76,7 @@ const CODE_TO_ORDER_STATUS = [
                         transactionHash: trace.transactionHash,
                         blockNumber: trace.blockNumber,
                         timestamp: block.timestamp,
+                        gasPrice: parseInt(tx.gasPrice),
                         success: trace.status === 1,
                         orders: orders,
                     },
@@ -119,11 +125,15 @@ function summarizeResults(transactions) {
         _.times(CODE_TO_ORDER_STATUS.length, () => [])
     );
     const orders = [];
+    const txsWithExpiredOrders = {};
     let totalSuccessfulTransactions = 0;
     let totalFailedTransactions = 0;
     for (const transactionHash in transactions) {
         const tx = transactions[transactionHash];
         for (const order of tx.orders) {
+            if (order.status === 'EXPIRED') {
+                txsWithExpiredOrders[transactionHash] = tx;
+            }
             ordersByStatus[order.status].push(order);
             orders.push(order);
         }
@@ -135,6 +145,7 @@ function summarizeResults(transactions) {
     }
     const totalUniqueOrders = _.uniqBy(orders, o => o.hash).length;
     const totalOrders = orders.length;
+    const gasPriceForTransactionsWithExpiredOrders = Object.values(txsWithExpiredOrders).map(tx => tx.gasPrice).sort((a, b) => a - b);
     const orderCountsByStatus = _.mapValues(ordersByStatus, os => os.length);
     const expiredTTLs = ordersByStatus['EXPIRED'].map(o => o.timeToLive).sort((a, b) => a - b);
     const allTTLs = _.flatten(_.values(ordersByStatus)).map(o => o.timeToLive).sort((a, b) => a - b);
@@ -146,10 +157,15 @@ function summarizeResults(transactions) {
         totalSuccessfulTransactions,
         totalFailedTransactions,
         totalTransactions: _.keys(transactions).length,
-        medianTTL: allTTLs[Math.floor(allTTLs.length / 2)],
-        medianFillableTTL: fillableTTLs[Math.floor(fillableTTLs.length / 2)],
-        medianExpiredTTL: expiredTTLs[Math.floor(expiredTTLs.length / 2)]
+        medianTTL: median(allTTLs),
+        medianFillableTTL: median(fillableTTLs),
+        medianExpiredTTL: median(expiredTTLs),
+        medianGasPriceForTransactionsWithExpiredOrders: median(gasPriceForTransactionsWithExpiredOrders),
     });
+}
+
+function median(arr) {
+    return arr[Math.floor(arr.length / 2)];
 }
 
 function extractMethodAbis() {
@@ -237,6 +253,7 @@ function mergeTransactionResults(current, result) {
     merged.transactionHash = result.transactionHash;
     merged.blockNumber = result.blockNumber;
     merged.timestamp = result.timestamp;
+    merged.gasPrice = result.gasPrice;
     merged.success = result.success;
     merged.orders = merged.orders || [];
     merged.orders = [...merged.orders, ...result.orders];
