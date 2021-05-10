@@ -10,7 +10,7 @@
         "@0x/contract-artifacts": "^2.0.1",
         "create-web3-provider": "^1.5.3",
         "ethereumjs-util": "^6.1.0",
-        "lodash": "^4.17.15",
+        "lodash": "^4.17.21",
         "web3": "^1.0.0-beta.55",
         "web3-eth-abi": "^1.0.0",
         "yargs": "^13.3.0"
